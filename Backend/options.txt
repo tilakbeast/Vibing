@@ -1,0 +1,12 @@
+| Bit | Option A              | Option B                  | Description                                                  |
+| --- | --------------------- | ------------------------- | ------------------------------------------------------------ |
+| 0   | Adventurous       | Grounded              | Likes trying new things vs prefers comfort and routine       |
+| 1   | Reserved          | Outgoing              | Quiet and introspective vs expressive and social             |
+| 2   | Driven            | Easygoing             | Goal-oriented vs prefers a relaxed approach                  |
+| 3   | Imaginative       | Pragmatic             | Creative thinker vs practical doer                           |
+| 4   | Active Lifestyle  | Relaxed Lifestyle     | Enjoys physical activity vs prefers calm pace                |
+| 5   | Spiritual         | Analytical            | Values intuition/spirituality vs logic and facts             |
+| 6   | Enjoys Animals    | Less Focused on Pets  | Likes pets vs doesn't prioritize animal companionship        |
+| 7   | Adventurous Eater | Selective Eater       | Enjoys trying different cuisines vs prefers familiar foods   |
+| 8   | Night-Oriented    | Morning-Oriented      | Energy peaks late vs energy peaks early                      |
+| 9   | Family-Centered   | Independence-Centered | Focus on family and close bonds vs values autonomy and space |
