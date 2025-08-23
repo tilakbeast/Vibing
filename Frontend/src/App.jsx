@@ -1,87 +1,87 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import axios from 'axios'
-import './App.css'
-import { useEffect } from 'react'
+import React, { useEffect, useState } from "react";
+import { io } from "socket.io-client";
+import Register from "./components/Register";
+import Login from "./components/Login";
+import MainPage from "./components/Mainpage";
 
+const App = () => {
+  const [socket, setSocket] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem("token"));
 
-const dat = {
+  console.log("top token: ", token);
+  console.log("Token type:", typeof token);
 
-  name: "Tilak",
-    gender: "male",
-    preferences: [
-      "Grounded",
-      "Outgoing",
-      "Driven",
-      "Imaginative",
-      "Active Lifestyle",
-      "Spiritual",
-      "Enjoys Animals",
-      "Adventurous Eater",
-      "Morning-Oriented",
-      "Family-Centered"
-    ],
-    bitmaskBinary: "1111011010",
-    bitmaskDecimal: 986
-}
-
-
-
-function App() {
-  const [count, setCount] = useState(0);
-  const [data, setData] = useState("yes");
-  const [approved, setApproved] = useState("No");
-  const [match, setMatch] = useState("");
-
-  async function sendData(dat) {
-
-    const resp = await axios.post('http://localhost:3000/find', dat);
-
-    if(resp.data.length !== 0) {
-
-      setApproved(resp.data);
-
-    }
-
-      
-    else console.log("fail")
-      
-
-    return resp;
-      
-  }
+  const [showLogin, setShowLogin] = useState(true);
 
   useEffect(() => {
 
-    axios.get('http://localhost:3000/')
-    .then((res) => { return res})
-    .then(res => setData(res.data))
-    .catch(error => console.log(error));
+    console.log("token: ", token, "Socket: ", socket);
+    if (token && !socket) {
+      const s = io("http://localhost:3000", { auth: { token } });
 
-    const received = sendData(dat);
+      console.log("The token is: ", token, showLogin);
+      console.log("The socket is: ", s);
 
-    console.log("Running")
-    
+      s.on("connect", () => console.log("Socket connected:", s.id));
 
-    // console.log(received);
 
-  }, [count])
+      // if(s)
+      // console.log("userId: ", s.data.userId);
+
+      s.on("connect_error", (err) => {
+
+        setShowLogin(true);
+
+        setToken("")
+
+        setSocket(null);
+
+        console.error("Socket error here:", err.message);
+      }
+      
+      );
+      setSocket(s);
+    }
+
+    if(socket)
+
+    return (() => {return socket.disconnect()})
+  }, [token, showLogin]);
+
+  const handleAuthSuccess = (newToken) => {
+    localStorage.setItem("token", newToken);
+    setToken(newToken);
+    setShowLogin(false);
+  };
 
   return (
+    <>
+      {!token ? (
+        showLogin ? (
+          <>
+          <Login
+            onLoginSuccess={handleAuthSuccess} setShowLogin = {setShowLogin}
+          />
 
-    <>    
-        <button onClick={() => setCount((count) => count + 1)}>
+          <button onClick = {() => {setShowLogin(false)}}> Register </button>
+
+          </>
+        ) : (
+          <Register onRegisterSuccess={handleAuthSuccess}
+          />
+        )
+      ) : (
+        // <h1> Mainpage </h1>
+        socket ? (
+
+          <MainPage socket = {socket} token = {token}/>
+        ) :
+
+        <h1> Loading </h1>
         
-          count is {count}
-        
-        </button>
-
-        <p> hello {data.name} </p>
-        <p> hello {JSON.stringify(approved)} </p>
-
+      )}
     </>
-  )
-}
+  );
+};
 
-export default App
+export default App;

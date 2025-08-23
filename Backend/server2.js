@@ -6,21 +6,6 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
 const cors = require('cors');
-const client = require('./redis/client');
-const { Mutex } = require("async-mutex");
-const matchMutex = new Mutex();
-const Redis = require("ioredis");
-const redis = new Redis({host: process.env.REDIS_HOST || 'redis'}) // defaults to localhost:6379
-
-async function clearRedis() {
-  try {
-    await redis.flushdb(); // clears only current DB
-    // await redis.flushall(); // clears ALL databases
-    console.log("Redis data cleared!");
-  } catch (err) {
-    console.error("Error clearing Redis:", err);
-  } 
-}
 
 const {
   addMatch,
@@ -77,15 +62,13 @@ User.find().then(users => {
 
 // clearUsersCollection();
 
-// console.log("hello")
-
 function popcount(n) {
   let count = 0;
   while (n > 0) {
     count += n & 1;
     n >>= 1;
   }
-  return 10 - count;
+  return count;
 }
 
 let activeUsers = new Map();
@@ -183,7 +166,6 @@ app.get('/emp', async (req, res) => {
 
   activeUsers = new Map();
 
-  clearRedis();
 
   let s = `Removed users count: ${cnt}`;
 
@@ -192,9 +174,6 @@ app.get('/emp', async (req, res) => {
 
 
 });
-
-
-
 
 // ----- Socket Auth Middleware -----
 io.use((socket, next) => {
@@ -219,32 +198,62 @@ io.on("connection", (socket) => {
 
 
   socket.on("find_match", async (userId) => {
-  await matchMutex.runExclusive(async () => {
+    // console.log(`${name} is looking for a match`);
+
+
     console.log("active users after find : ", activeUsers);
 
-    if (runit === 0) {
-      runit++;
-      await fillin();
-    }
+    console.log("type: ", typeof userId);
 
+    if(runit === 0) {
+
+      runit++;
+
+      await fillin();
+
+
+    }
     // fetch user details from MongoDB
-    const user = await User.findOne({ username: userId });
+    const user = await User.findOne({username : userId});
+
+    console.log("user is: ", user);
+
     if (!user) {
       return socket.emit("error", { message: "User not found" });
     }
 
     userSocketMap.set(userId, socket);
+
+    console.log("socket : ", socket.data.userId);
+    console.log("socket : ", userSocketMap.get(userId).data.userId);
+
     console.log(`${user.username} is looking for a match`);
 
-    const bitmaskBinary = user.preferences;
+    const bitmaskBinary = user.preferences; // assuming stored as string "10101..."
+
+    // add to Active users in Redis (store full object or just needed fields)
+
+    console.log("userid and bitmaskbinary: ", userId, " ", bitmaskBinary);
 
     try {
+
       await addActive(userId, bitmaskBinary);
+
+      console.log("active type: ", typeof activeUsers);
+
       activeUsers.set(userId, bitmaskBinary);
-      console.log("added to activeUsers");
-    } catch (err) {
-      console.log("error while adding: ", err);
+
+      console.log("added");
+
     }
+
+    catch (err) {
+
+      console.log("error while adding: ", err);
+
+    }
+
+    // fetch active user
 
     // Initialize best match
     let maxScore = -1;
@@ -252,19 +261,27 @@ io.on("connection", (socket) => {
     let bitmax = "";
 
     for (let [a, b] of activeUsers) {
-      if (a === userId) continue;
 
-      const already = await isAlreadyMatched(userId, a);
+      const candidate = {
+
+        userId : a,
+        bitmaskBinary : b
+      }
+      if (candidate.userId === userId) continue; // skip self
+
+      const already = await isAlreadyMatched(userId, candidate.userId);
+      console.log("Matched before:", already, candidate.userId);
       if (already) continue;
 
+      // calculate compatibility score
       const score = popcount(
-        parseInt(bitmaskBinary, 2) ^ parseInt(b, 2)
+        parseInt(bitmaskBinary, 2) & parseInt(candidate.bitmaskBinary, 2)
       );
 
       if (score > maxScore) {
         maxScore = score;
-        bestMatchId = a;
-        bitmax = b;
+        bestMatchId = candidate.userId;
+        bitmax = candidate.bitmaskBinary;
       }
     }
 
@@ -273,37 +290,50 @@ io.on("connection", (socket) => {
       await addMatch(userId, bestMatchId);
       await addMatch(bestMatchId, userId);
 
+
       activeUsers.delete(userId);
       activeUsers.delete(bestMatchId);
 
       await removeActive(userId, bitmaskBinary);
       await removeActive(bestMatchId, bitmax);
 
+      console.log("After matching: ", await getActiveUsers());
+
       const socketA = userSocketMap.get(userId);
       const socketB = userSocketMap.get(bestMatchId);
 
+      console.log("UserSocketMap:", socketA?.data.userId, socketB?.data.userId);
+
+      // notify both
       if (socketA) socketA.emit("match_found", { partner: bestMatchId });
       if (socketB) socketB.emit("match_found", { partner: userId });
 
       console.log(`Matched ${userId} with ${bestMatchId}`);
 
-      const roomId = `${userId}_${bestMatchId}`;
-      if (socketA) socketA.emit("start_call", { roomId, partnerId: bestMatchId });
-      if (socketB) socketB.emit("start_call", { roomId, partnerId: userId });
+       const roomId = `${userId}_${bestMatchId}`;
 
-      socketA?.on("webrtc_signal", (data) => {
-        socketB?.emit("webrtc_signal", data);
-      });
+  // Tell both clients which room to join
+  if (socketA) socketA.emit("start_call", { roomId, partnerId: bestMatchId });
+  if (socketB) socketB.emit("start_call", { roomId, partnerId: userId });
 
-      socketB?.on("webrtc_signal", (data) => {
-        socketA?.emit("webrtc_signal", data);
-      });
+    // Listen for WebRTC signals from clients and forward to partner
+    socketA?.on("webrtc_signal", (data) => {
+
+      socketB?.emit("webrtc_signal", data);
+
+    });
+
+    socketB?.on("webrtc_signal", (data) => {
+
+      socketA?.emit("webrtc_signal", data);
+
+    });
+
     } else {
+      // no match
       socket.emit("waiting", { message: "No match yet, added to queue" });
     }
   });
-});
-
 
   socket.on('call_end', async({ partnerId }) => {
     const partnerSocket = userSocketMap.get(partnerId);
@@ -329,11 +359,6 @@ io.on("connection", (socket) => {
 });
 
 // ----- Start -----
-const MONGO_URI = "mongodb://admin:adminpassword@mongo:27017/myapp?authSource=admin";
-
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect("mongodb://admin:adminpassword@localhost:27017/myapp?authSource=admin")
     .then(() => console.log("MongoDB connected"))
   .then(() => server.listen(3000, () => console.log("Server running on 3000")));
