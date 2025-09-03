@@ -48,7 +48,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, unique: true },
   password: String,
   preferences: String
-});
+}); 
 const User = mongoose.model("User", userSchema);
 
 User.find().then(users => {
@@ -217,10 +217,10 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log("User connected:", socket.data.userId);
 
+  let bitmaskfordiconnect = "";
+
 
   socket.on("find_match", async (userId) => {
-  await matchMutex.runExclusive(async () => {
-    console.log("active users after find : ", activeUsers);
 
     if (runit === 0) {
       runit++;
@@ -238,6 +238,8 @@ io.on("connection", (socket) => {
 
     const bitmaskBinary = user.preferences;
 
+    bitmaskfordiconnect = bitmaskBinary;
+
     try {
       await addActive(userId, bitmaskBinary);
       activeUsers.set(userId, bitmaskBinary);
@@ -245,6 +247,11 @@ io.on("connection", (socket) => {
     } catch (err) {
       console.log("error while adding: ", err);
     }
+
+    console.log("active users after find : ", activeUsers);
+
+  await matchMutex.runExclusive(async () => {
+    
 
     // Initialize best match
     let maxScore = -1;
@@ -323,7 +330,19 @@ io.on("connection", (socket) => {
     console.log(`${socket.data.userId} ended the call with ${partnerId}`);
     });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async() => {
+
+    try {
+      await removeActive(socket.data.userId, bitmaskfordiconnect);
+      activeUsers.delete(socket.data.userId);
+    }
+
+    catch (err) {
+
+      console.log("error removing from active users while disconnecting: ", err);
+
+    }
+
     console.log("User disconnected:", socket.data.userId);
   });
 });
